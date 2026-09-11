@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NO EXIT — a backrooms game</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#000; font-family: 'Courier New', monospace; }
+  canvas { display:block; }
+
+  #crosshair {
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:6px; height:6px; border-radius:50%;
+    background:rgba(255,255,255,0.55);
+    pointer-events:none; z-index:5;
+  }
+
+  #vignette {
+    position:fixed; inset:0; pointer-events:none; z-index:4;
+    box-shadow: inset 0 0 180px 60px rgba(0,0,0,0.85);
+  }
+
+  #hud {
+    position:fixed; left:18px; bottom:18px; z-index:5;
+    color:#c9c2a0; font-size:12px; letter-spacing:1px;
+    text-shadow: 0 0 4px #000;
+    display:flex; flex-direction:column; gap:6px; width:180px;
+  }
+  #staminaBar, #dreadBar {
+    width:100%; height:6px; background:rgba(255,255,255,0.12);
+    border:1px solid rgba(255,255,255,0.25);
+  }
+  #staminaFill { height:100%; width:100%; background:#c9c2a0; transition: width 0.1s linear; }
+  #dreadFill { height:100%; width:0%; background:#7a1f1f; transition: width 0.3s linear; }
+
+  #flashHint {
+    position:fixed; right:18px; bottom:18px; z-index:5;
+    color:#8a8368; font-size:11px; letter-spacing:1px;
+    text-shadow: 0 0 4px #000;
+  }
+
+  .overlay {
+    position:fixed; inset:0; z-index:10;
+    display:flex; align-items:center; justify-content:center; flex-direction:column;
+    background: radial-gradient(ellipse at center, #1a1707 0%, #000000 100%);
+    color:#c9c2a0; text-align:center; padding:20px;
+  }
+  .overlay h1 {
+    font-size:clamp(28px,6vw,54px); letter-spacing:6px; color:#b7ae87;
+    text-shadow: 0 0 20px rgba(150,140,80,0.4), 0 0 2px #000;
+    margin-bottom:18px; font-weight:normal;
+  }
+  .overlay p { font-size:13px; line-height:1.9; max-width:480px; color:#8a8368; letter-spacing:0.5px; }
+  .overlay .key { color:#c9c2a0; border:1px solid #55502f; padding:1px 7px; border-radius:3px; }
+  .btn {
+    margin-top:26px; padding:12px 30px; background:transparent;
+    border:1px solid #55502f; color:#c9c2a0; font-family:inherit;
+    font-size:13px; letter-spacing:3px; cursor:pointer; transition: all 0.25s;
+  }
+  .btn:hover { background:#c9c2a0; color:#141207; border-color:#c9c2a0; }
+  .hidden { display:none !important; }
+
+  #gameOver h1 { color:#7a1f1f; text-shadow: 0 0 30px rgba(180,30,30,0.6); }
+  #flash {
+    position:fixed; inset:0; background:#3a0000; opacity:0; pointer-events:none; z-index:9;
+  }
+
+  #winScreen h1 { color:#c9c2a0; }
+
+  #joystickBase {
+    position:fixed; width:110px; height:110px; border-radius:50%;
+    border:2px solid rgba(201,194,160,0.35); background:rgba(255,255,255,0.06);
+    z-index:6; pointer-events:none; display:none;
+  }
+  #joystickKnob {
+    position:absolute; top:50%; left:50%; width:48px; height:48px; border-radius:50%;
+    background:rgba(201,194,160,0.45); transform:translate(-50%,-50%);
+  }
+  #lookZoneHint {
+    position:fixed; right:0; top:0; width:50%; height:100%; z-index:3; pointer-events:none;
+  }
+  #mobileButtons {
+    position:fixed; right:16px; bottom:110px; z-index:6;
+    display:flex; flex-direction:column; gap:12px;
+  }
+  .mbtn {
+    width:64px; height:64px; border-radius:50%;
+    background:rgba(255,255,255,0.08); border:1px solid rgba(201,194,160,0.4);
+    color:#c9c2a0; font-size:10px; letter-spacing:1px; font-family:inherit;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent;
+  }
+  .mbtn.active { background:rgba(201,194,160,0.35); }
+
+  #resumeOverlay {
+    position:fixed; inset:0; z-index:7; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,0.5); color:#c9c2a0; font-size:14px; letter-spacing:3px;
+    cursor:pointer; text-shadow:0 0 6px #000;
+  }
+</style>
+</head>
+<body>
+
+<div id="flash"></div>
+<div id="vignette"></div>
+<div id="crosshair"></div>
+
+<div id="hud" class="hidden">
+  <div>STAMINA</div>
+  <div id="staminaBar"><div id="staminaFill"></div></div>
+  <div style="margin-top:4px;">???</div>
+  <div id="dreadBar"><div id="dreadFill"></div></div>
+</div>
+<div id="flashHint" class="hidden">[F] FLASHLIGHT &nbsp; [SHIFT] RUN</div>
+
+<div id="joystickBase"><div id="joystickKnob"></div></div>
+<div id="mobileButtons" class="hidden">
+  <div class="mbtn" id="runBtn">RUN</div>
+  <div class="mbtn" id="lightBtn">LIGHT</div>
+</div>
+
+<div class="overlay" id="startScreen">
+  <h1>NO EXIT</h1>
+  <p>
+    You are lost in the backrooms. Somewhere in these halls, something is
+    looking for you. It cannot move while you see it &mdash; but the moment
+    it leaves your sight, it will come closer.<br><br>
+    Find the exit sign glowing at the far end of the halls.<br><br>
+    <span class="key">W A S D</span> move &nbsp; <span class="key">MOUSE</span> look &nbsp;
+    <span class="key">SHIFT</span> run &nbsp; <span class="key">F</span> flashlight
+  </p>
+  <button class="btn" id="startBtn">ENTER</button>
+</div>
+
+<div class="overlay" id="gameOver" style="display:none;">
+  <h1>IT FOUND YOU</h1>
+  <p>You should have kept looking.</p>
+  <button class="btn" id="retryBtn">TRY AGAIN</button>
+</div>
+
+<div class="overlay" id="winScreen" style="display:none;">
+  <h1>YOU'RE OUT</h1>
+  <p>The fluorescent hum fades behind you. For now, you're safe.</p>
+  <button class="btn" id="retryBtn2">PLAY AGAIN</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- CONFIG ----------
+  const CELL = 4;
+  const MAZE_N = 11; // odd-ish grid size
+  const WALL_H = 3.2;
+  const PLAYER_R = 0.35;
+  const EYE_H = 1.6;
+  const WALK_SPEED = 3.1;
+  const RUN_SPEED = 5.3;
+  const MONSTER_BASE_SPEED = 4.6; // faster than walking
+    const MONSTER_RUN_SPEED = 5.8; // keeps pressure on the player while sprinting
+    const MONSTER_CLOSE_SPEED = 6.2; // extra pressure when very close and unseen
+  const CATCH_DIST = 1.05;
+  const VIEW_FOV_DEG = 40;
+  const VIEW_DIST = 999; // sight always works if angle+LOS ok, distance handled by fog/light naturally
+
+  // ---------- STATE ----------
+  let scene, camera, renderer, clock;
+  let yaw = 0, pitch = 0;
+  let keys = {};
+  let pointerLocked = false;
+  let stamina = 1.0;
+  let gameActive = false;
+  let playerPos = new THREE.Vector3();
+  let velocity = new THREE.Vector3();
+  let flashlightOn = false;
+  let flashlight, playerLight;
+  let monster, monsterGroup;
+  let monsterCell = {x:0,z:0};
+  let monsterPos = new THREE.Vector3();
+  let monsterPath = [];
+  let monsterPathTimer = 0;
+  let monsterVisible = false;
+  let monsterCaughtTimer = 0;
+  let wallBoxes = [];
+  let maze;
+  let exitCell;
+  let audioCtx, droneOsc, droneGain, noiseNode;
+  let footstepBuffer = null;
+  let lastFootstepStep = 0;
+  let heartbeatTimer = 0;
+  let breathTimer = 0;
+  let postRunBreathTimer = 0;
+  let lastMovementWasRunning = false;
+  let hintMeshes = [];
+  let scareEntity = null;
+  let scareTriggered = false;
+  let scareActive = false;
+  let scareTimer = 0;
+  let headbobT = 0;
+  let flicker = {};
+  let raycaster = new THREE.Raycaster();
+  let wallMeshesForRaycast = [];
+
+  // ---------- MOBILE / TOUCH ----------
+  const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
+                    window.matchMedia('(pointer:coarse)').matches;
+  let joystick = {active:false, id:null, baseX:0, baseY:0, nx:0, ny:0};
+  let lookTouch = {active:false, id:null, lastX:0, lastY:0};
+  let mobileRun = false;
+
+  // ---------- MAZE GENERATION (recursive backtracker) ----------
+  function generateMaze(n){
+    const cells = [];
+    for(let x=0;x<n;x++){
+      cells.push([]);
+      for(let z=0;z<n;z++){
+        cells[x].push({x,z,visited:false,walls:{N:true,S:true,E:true,W:true}});
+      }
+    }
+    const stack = [];
+    let current = cells[0][0];
+    current.visited = true;
+    stack.push(current);
+    const dirs = [
+      {dx:0,dz:-1,self:'N',opp:'S'},
+      {dx:0,dz:1,self:'S',opp:'N'},
+      {dx:1,dz:0,self:'E',opp:'W'},
+      {dx:-1,dz:0,self:'W',opp:'E'}
+    ];
+    while(stack.length){
+      current = stack[stack.length-1];
+      const neighbors = [];
+      for(const d of dirs){
+        const nx = current.x+d.dx, nz = current.z+d.dz;
+        if(nx>=0 && nx<n && nz>=0 && nz<n && !cells[nx][nz].visited){
+          neighbors.push({cell:cells[nx][nz], dir:d});
+        }
+      }
+      if(neighbors.length===0){
+        stack.pop();
+      } else {
+        const pick = neighbors[Math.floor(Math.random()*neighbors.length)];
+        current.walls[pick.dir.self] = false;
+        pick.cell.walls[pick.dir.opp] = false;
+        pick.cell.visited = true;
+        stack.push(pick.cell);
+      }
+    }
+    return cells;
+  }
+
+  function cellCenter(cx, cz){
+    return new THREE.Vector3((cx - (MAZE_N-1)/2)*CELL, 0, (cz - (MAZE_N-1)/2)*CELL);
+  }
+
+  // ---------- PROCEDURAL TEXTURES ----------
+  function makeWallTexture(){
+    const c = document.createElement('canvas'); c.width=256; c.height=256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#a89a4e'; ctx.fillRect(0,0,256,256);
+    // vertical stripe wallpaper pattern
+    ctx.strokeStyle = 'rgba(120,105,40,0.5)'; ctx.lineWidth = 3;
+    for(let x=0;x<256;x+=18){
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,256); ctx.stroke();
+    }
+    // noise/grime
+    for(let i=0;i<2200;i++){
+      const x=Math.random()*256, y=Math.random()*256;
+      const shade = Math.random()*40-20;
+      ctx.fillStyle = `rgba(${60+shade},${55+shade},${20+shade},${Math.random()*0.25})`;
+      ctx.fillRect(x,y,Math.random()*3,Math.random()*3);
+    }
+    // horizontal grime streaks
+    for(let i=0;i<10;i++){
+      const y = Math.random()*256;
+      ctx.fillStyle = 'rgba(40,35,10,0.08)';
+      ctx.fillRect(0,y,256,Math.random()*10+2);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  function makeFloorTexture(){
+    const c = document.createElement('canvas'); c.width=256; c.height=256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#5a4a2e'; ctx.fillRect(0,0,256,256);
+    for(let i=0;i<5000;i++){
+      const x=Math.random()*256, y=Math.random()*256;
+      const shade = Math.random()*30-15;
+      ctx.fillStyle = `rgba(${90+shade},${75+shade},${45+shade},${Math.random()*0.4})`;
+      ctx.fillRect(x,y,1.5,1.5);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  function makeCeilingTexture(){
+    const c = document.createElement('canvas'); c.width=256; c.height=256;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#e8e0b8'; ctx.fillRect(0,0,256,256);
+    ctx.strokeStyle = 'rgba(150,140,90,0.6)'; ctx.lineWidth = 4;
+    ctx.strokeRect(2,2,252,252);
+    for(let i=0;i<800;i++){
+      const x=Math.random()*256, y=Math.random()*256;
+      ctx.fillStyle = `rgba(120,110,70,${Math.random()*0.15})`;
+      ctx.fillRect(x,y,2,2);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    return tex;
+  }
+
+  // ---------- BUILD SCENE ----------
+  function buildMazeGeometry(){
+    const wallTex = makeWallTexture();
+    wallTex.repeat.set(1,1);
+    const wallMat = new THREE.MeshStandardMaterial({map:wallTex, roughness:0.95, metalness:0.0});
+    const floorTex = makeFloorTexture();
+    floorTex.repeat.set(MAZE_N*2, MAZE_N*2);
+    const floorMat = new THREE.MeshStandardMaterial({map:floorTex, roughness:1.0});
+    const ceilTex = makeCeilingTexture();
+    ceilTex.repeat.set(MAZE_N, MAZE_N);
+    const ceilMat = new THREE.MeshStandardMaterial({map:ceilTex, roughness:0.9, emissive:0x2b280f, emissiveIntensity:0.15});
+
+    const totalSize = MAZE_N*CELL;
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(totalSize, totalSize), floorMat);
+    floor.rotation.x = -Math.PI/2;
+    floor.position.set(0,0,0);
+    scene.add(floor);
+
+    const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(totalSize, totalSize), ceilMat);
+    ceiling.rotation.x = Math.PI/2;
+    ceiling.position.set(0,WALL_H,0);
+    scene.add(ceiling);
+
+    const wallGeo = new THREE.BoxGeometry(CELL, WALL_H, 0.2);
+
+    function addWallSegment(cx, cz, horizontal){
+      // horizontal = true means wall runs along X axis (separating N/S), else along Z axis (separating E/W)
+      const mesh = new THREE.Mesh(wallGeo, wallMat);
+      const center = cellCenter(cx, cz);
+      if(horizontal){
+        mesh.position.set(center.x, WALL_H/2, center.z);
+      } else {
+        mesh.rotation.y = Math.PI/2;
+        mesh.position.set(center.x, WALL_H/2, center.z);
+      }
+      scene.add(mesh);
+      wallMeshesForRaycast.push(mesh);
+      return mesh;
+    }
+
+    // build walls based on maze connectivity; place wall on boundary between cells
+    for(let x=0;x<MAZE_N;x++){
+      for(let z=0;z<MAZE_N;z++){
+        const cell = maze[x][z];
+        const c = cellCenter(x,z);
+        // North wall (z-1 side)
+        if(cell.walls.N){
+          const wx = c.x, wz = c.z - CELL/2;
+          placeWallBox(wx, wz, CELL, 0.2, true);
+        }
+        if(cell.walls.S && z===MAZE_N-1){
+          const wx = c.x, wz = c.z + CELL/2;
+          placeWallBox(wx, wz, CELL, 0.2, true);
+        }
+        if(cell.walls.W){
+          const wx = c.x - CELL/2, wz = c.z;
+          placeWallBox(wx, wz, 0.2, CELL, false);
+        }
+        if(cell.walls.E && x===MAZE_N-1){
+          const wx = c.x + CELL/2, wz = c.z;
+          placeWallBox(wx, wz, 0.2, CELL, false);
+        }
+      }
+    }
+
+    function placeWallBox(wx, wz, sizeX, sizeZ, isHorizontalWall){
+      const geo = new THREE.BoxGeometry(sizeX, WALL_H, sizeZ);
+      const mesh = new THREE.Mesh(geo, wallMat);
+      mesh.position.set(wx, WALL_H/2, wz);
+      scene.add(mesh);
+      wallMeshesForRaycast.push(mesh);
+      wallBoxes.push({
+        minX: wx - sizeX/2, maxX: wx + sizeX/2,
+        minZ: wz - sizeZ/2, maxZ: wz + sizeZ/2
+      });
+    }
+
+    // flickering fluorescent lights every ~3 cells
+    for(let x=1;x<MAZE_N;x+=3){
+      for(let z=1;z<MAZE_N;z+=3){
+        const c = cellCenter(x,z);
+        const light = new THREE.PointLight(0xfff4c2, 1.1, CELL*4.2, 2);
+        light.position.set(c.x, WALL_H-0.15, c.z);
+        scene.add(light);
+        const key = `${x}_${z}`;
+        flicker[key] = {light, base:1.1, phase:Math.random()*10};
+      }
+    }
+
+    // exit marker — pick the farthest cell from start via BFS
+    exitCell = findFarthestCell(0,0);
+    const ec = cellCenter(exitCell.x, exitCell.z);
+    const exitLight = new THREE.PointLight(0x66ff66, 2.2, CELL*3, 2);
+    exitLight.position.set(ec.x, WALL_H-0.3, ec.z);
+    scene.add(exitLight);
+    const exitGeo = new THREE.PlaneGeometry(1.2,0.5);
+    const exitMat = new THREE.MeshBasicMaterial({color:0x33ff33});
+    const exitSign = new THREE.Mesh(exitGeo, exitMat);
+    exitSign.position.set(ec.x, WALL_H-0.5, ec.z);
+    scene.add(exitSign);
+    window.__exitPos = ec;
+  }
+
+  function findFarthestCell(sx,sz){
+    const visited = Array.from({length:MAZE_N},()=>Array(MAZE_N).fill(false));
+    let queue = [{x:sx,z:sz,d:0}];
+    visited[sx][sz]=true;
+    let farthest = {x:sx,z:sz,d:0};
+    while(queue.length){
+      const cur = queue.shift();
+      if(cur.d > farthest.d) farthest = cur;
+      const cell = maze[cur.x][cur.z];
+      const options = [];
+      if(!cell.walls.N) options.push([cur.x,cur.z-1]);
+      if(!cell.walls.S) options.push([cur.x,cur.z+1]);
+      if(!cell.walls.E) options.push([cur.x+1,cur.z]);
+      if(!cell.walls.W) options.push([cur.x-1,cur.z]);
+      for(const [nx,nz] of options){
+        if(nx>=0&&nx<MAZE_N&&nz>=0&&nz<MAZE_N&&!visited[nx][nz]){
+          visited[nx][nz]=true;
+          queue.push({x:nx,z:nz,d:cur.d+1});
+        }
+      }
+    }
+    return farthest;
+  }
+
+  function bfsDistances(sx,sz){
+    const dist = Array.from({length:MAZE_N},()=>Array(MAZE_N).fill(-1));
+    dist[sx][sz] = 0;
+    let queue = [{x:sx,z:sz}];
+    while(queue.length){
+      const cur = queue.shift();
+      const cell = maze[cur.x][cur.z];
+      const options = [];
+      if(!cell.walls.N) options.push([cur.x,cur.z-1]);
+      if(!cell.walls.S) options.push([cur.x,cur.z+1]);
+      if(!cell.walls.E) options.push([cur.x+1,cur.z]);
+      if(!cell.walls.W) options.push([cur.x-1,cur.z]);
+      for(const [nx,nz] of options){
+        if(nx>=0&&nx<MAZE_N&&nz>=0&&nz<MAZE_N&&dist[nx][nz]===-1){
+          dist[nx][nz] = dist[cur.x][cur.z]+1;
+          queue.push({x:nx,z:nz});
+        }
+      }
+    }
+    return dist;
+  }
+
+  function bfsPath(sx,sz,tx,tz){
+    if(sx===tx && sz===tz) return [];
+    const visited = Array.from({length:MAZE_N},()=>Array(MAZE_N).fill(false));
+    const prev = {};
+    let queue = [{x:sx,z:sz}];
+    visited[sx][sz]=true;
+    while(queue.length){
+      const cur = queue.shift();
+      if(cur.x===tx && cur.z===tz) break;
+      const cell = maze[cur.x][cur.z];
+      const options = [];
+      if(!cell.walls.N) options.push([cur.x,cur.z-1]);
+      if(!cell.walls.S) options.push([cur.x,cur.z+1]);
+      if(!cell.walls.E) options.push([cur.x+1,cur.z]);
+      if(!cell.walls.W) options.push([cur.x-1,cur.z]);
+      for(const [nx,nz] of options){
+        if(nx>=0&&nx<MAZE_N&&nz>=0&&nz<MAZE_N&&!visited[nx][nz]){
+          visited[nx][nz]=true;
+          prev[`${nx}_${nz}`] = `${cur.x}_${cur.z}`;
+          queue.push({x:nx,z:nz});
+        }
+      }
+    }
+    // reconstruct
+    let path = [];
+    let curKey = `${tx}_${tz}`;
+    if(!visited[tx][tz]) return [];
+    while(curKey !== `${sx}_${sz}`){
+      const [px,pz] = curKey.split('_').map(Number);
+      path.push({x:px,z:pz});
+      curKey = prev[curKey];
+      if(!curKey) break;
+    }
+    path.reverse();
+    return path;
+  }
+
+  // ---------- WALL HINTS ----------
+  function makeSignTexture(text){
+    const c = document.createElement('canvas'); c.width=256; c.height=128;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0,0,256,128);
+    ctx.fillStyle = 'rgba(40,30,10,0.22)';
+    ctx.beginPath(); ctx.ellipse(128,64,120,56,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = 'rgba(130,25,25,0.88)';
+    ctx.lineWidth = 9;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(38,58); ctx.lineTo(172,58);
+    ctx.moveTo(172,58); ctx.lineTo(138,30);
+    ctx.moveTo(172,58); ctx.lineTo(138,86);
+    ctx.stroke();
+    ctx.font = 'italic bold 21px Georgia';
+    ctx.fillStyle = 'rgba(115,20,20,0.85)';
+    ctx.textAlign = 'center';
+    ctx.save();
+    ctx.translate(128,102);
+    ctx.rotate(-0.025);
+    ctx.fillText(text,0,0);
+    ctx.restore();
+    const tex = new THREE.CanvasTexture(c);
+    return tex;
+  }
+
+  function makeSignMesh(text){
+    const tex = makeSignTexture(text);
+    const mat = new THREE.MeshBasicMaterial({map:tex, transparent:true, side:THREE.DoubleSide, depthWrite:false});
+    const geo = new THREE.PlaneGeometry(1.3,0.65);
+    return new THREE.Mesh(geo, mat);
+  }
+
+  function addPathHints(){
+    hintMeshes = [];
+    const fullPath = [{x:0,z:0}].concat(bfsPath(0,0,exitCell.x,exitCell.z));
+    const phrases = ["THIS WAY","KEEP GOING","ALMOST THERE","RUN","GET OUT","DON'T STOP","EXIT →","HURRY"];
+    let phraseI = 0;
+
+    // Helpful signs along the real solution path.
+    for(let i=0;i<fullPath.length-1;i+=3){
+      const cur = fullPath[i], next = fullPath[i+1];
+      const ddx = next.x-cur.x, ddz = next.z-cur.z;
+      const cell = maze[cur.x][cur.z];
+      const center = cellCenter(cur.x,cur.z);
+      const text = phrases[phraseI % phrases.length]; phraseI++;
+      let mesh = null;
+      if(ddz !== 0){
+        if(cell.walls.E){
+          mesh = makeSignMesh(text);
+          mesh.position.set(center.x + CELL/2 - 0.11, 1.6, center.z);
+          mesh.rotation.y = ddz>0 ? -Math.PI/2 : Math.PI/2;
+        } else if(cell.walls.W){
+          mesh = makeSignMesh(text);
+          mesh.position.set(center.x - CELL/2 + 0.11, 1.6, center.z);
+          mesh.rotation.y = ddz>0 ? -Math.PI/2 : Math.PI/2;
+        }
+      } else if(ddx !== 0){
+        if(cell.walls.N){
+          mesh = makeSignMesh(text);
+          mesh.position.set(center.x, 1.6, center.z - CELL/2 + 0.11);
+          mesh.rotation.y = ddx>0 ? 0 : Math.PI;
+        } else if(cell.walls.S){
+          mesh = makeSignMesh(text);
+          mesh.position.set(center.x, 1.6, center.z + CELL/2 - 0.11);
+          mesh.rotation.y = ddx>0 ? 0 : Math.PI;
+        }
+      }
+      if(mesh){ scene.add(mesh); hintMeshes.push(mesh); }
+    }
+
+  }
+
+  function buildScareEntity(){
+    scareEntity = null;
+    scareTriggered = false;
+    scareActive = false;
+    scareTimer = 0;
+
+    // Put the scare at the end of a genuinely distant dead-end corridor.
+    const candidates = [];
+    const startDist = bfsDistances(0,0);
+    for(let x=0;x<MAZE_N;x++){
+      for(let z=0;z<MAZE_N;z++){
+        if((x===0&&z===0) || (x===exitCell.x&&z===exitCell.z)) continue;
+        const c=maze[x][z];
+        const openings=[!c.walls.N,!c.walls.S,!c.walls.E,!c.walls.W].filter(Boolean).length;
+        if(openings===1 && startDist[x][z] >= 6) candidates.push({x,z,d:startDist[x][z]});
+      }
+    }
+    if(!candidates.length) return;
+
+    // Prefer one of the farther dead ends so the player has a real chance to encounter it.
+    candidates.sort((a,b)=>b.d-a.d);
+    const pool=candidates.slice(0,Math.max(1,Math.ceil(candidates.length*0.55)));
+    const cell=pool[Math.floor(Math.random()*pool.length)];
+    const pos=cellCenter(cell.x,cell.z);
+
+    const group=new THREE.Group();
+    const mat=new THREE.MeshStandardMaterial({
+      color:0x090909, roughness:0.95, metalness:0,
+      emissive:0x050505, emissiveIntensity:0.7
+    });
+
+    const torso=new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.38,1.7,8),mat);
+    torso.position.y=0.9; group.add(torso);
+
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.27,10,10),mat);
+    head.position.y=1.92; head.scale.set(0.78,1.25,0.75); group.add(head);
+
+    const armGeo=new THREE.CylinderGeometry(0.045,0.065,1.55,7);
+    const armL=new THREE.Mesh(armGeo,mat); armL.position.set(-0.38,0.92,0); armL.rotation.z=0.22; group.add(armL);
+    const armR=new THREE.Mesh(armGeo,mat); armR.position.set(0.38,0.92,0); armR.rotation.z=-0.22; group.add(armR);
+
+    // Tiny eyes make the silhouette readable without turning it into a glowing monster.
+    const eyeMat=new THREE.MeshBasicMaterial({color:0xaa2222});
+    const eyeGeo=new THREE.SphereGeometry(0.035,8,8);
+    const e1=new THREE.Mesh(eyeGeo,eyeMat); e1.position.set(-0.085,1.93,0.23); group.add(e1);
+    const e2=new THREE.Mesh(eyeGeo,eyeMat); e2.position.set(0.085,1.93,0.23); group.add(e2);
+
+    group.position.set(pos.x,-2.0,pos.z);
+    group.visible=true;
+    scene.add(group);
+
+    scareEntity={group,cell,baseX:pos.x,baseZ:pos.z,startY:-2.0};
+  }
+
+function buildMonster(){
+    monsterGroup = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({color:0x0a0a0a, roughness:0.9});
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28,0.36,1.5,8), bodyMat);
+    body.position.y = 0.95;
+    monsterGroup.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26,8,8), bodyMat);
+    head.position.y = 1.85;
+    head.scale.set(0.85,1.15,0.9);
+    monsterGroup.add(head);
+    // limbs - long thin
+    const armMat = bodyMat;
+    const armGeo = new THREE.CylinderGeometry(0.06,0.06,1.3,6);
+    const armL = new THREE.Mesh(armGeo, armMat); armL.position.set(-0.38,0.95,0); armL.rotation.z = 0.15; monsterGroup.add(armL);
+    const armR = new THREE.Mesh(armGeo, armMat); armR.position.set(0.38,0.95,0); armR.rotation.z = -0.15; monsterGroup.add(armR);
+    // eyes - only very faint red, visible up close
+    const eyeMat = new THREE.MeshBasicMaterial({color:0x440000});
+    const eyeGeo = new THREE.SphereGeometry(0.03,6,6);
+    const eyeL = new THREE.Mesh(eyeGeo, eyeMat); eyeL.position.set(-0.08,1.87,0.22); monsterGroup.add(eyeL);
+    const eyeR = new THREE.Mesh(eyeGeo, eyeMat); eyeR.position.set(0.08,1.87,0.22); monsterGroup.add(eyeR);
+
+    scene.add(monsterGroup);
+  }
+
+  function resetMonster(){
+    // spawn monster at a fair distance from the player: far enough to feel safe
+    // at first, but not sitting on top of the exit either.
+    const distFromStart = bfsDistances(0,0);
+    let maxD = 0;
+    for(let x=0;x<MAZE_N;x++) for(let z=0;z<MAZE_N;z++) if(distFromStart[x][z]>maxD) maxD=distFromStart[x][z];
+    const candidates = [];
+    for(let x=0;x<MAZE_N;x++){
+      for(let z=0;z<MAZE_N;z++){
+        const d = distFromStart[x][z];
+        if(d >= maxD*0.4 && d <= maxD*0.75 && !(x===exitCell.x && z===exitCell.z)){
+          candidates.push({x,z});
+        }
+      }
+    }
+    const spawn = candidates.length ? candidates[Math.floor(Math.random()*candidates.length)] : {x:exitCell.x,z:exitCell.z};
+    monsterCell = {x: spawn.x, z: spawn.z};
+    const pos = cellCenter(monsterCell.x, monsterCell.z);
+    monsterPos.set(pos.x, 0, pos.z);
+    monsterGroup.position.copy(monsterPos);
+    monsterPath = [];
+    monsterPathTimer = 0;
+  }
+
+  function checkMonsterVisible(camPos, camDir){
+    const toMonster = new THREE.Vector3(monsterPos.x - camPos.x, 1.0, monsterPos.z - camPos.z);
+    const dist = Math.sqrt(toMonster.x*toMonster.x + toMonster.z*toMonster.z);
+    if(dist < 0.01) return true;
+    const flatDir = new THREE.Vector3(camDir.x, 0, camDir.z).normalize();
+    const flatTo = new THREE.Vector3(toMonster.x,0,toMonster.z).normalize();
+    const angle = flatDir.angleTo(flatTo) * (180/Math.PI);
+    const halfFov = (flashlightOn ? VIEW_FOV_DEG*0.6 : VIEW_FOV_DEG) / 2 + (flashlightOn?10:0);
+    if(angle > halfFov) return false;
+    // line of sight raycast
+    const rayOrigin = new THREE.Vector3(camPos.x, 1.2, camPos.z);
+    const rayTarget = new THREE.Vector3(monsterPos.x, 1.2, monsterPos.z);
+    const dir = rayTarget.clone().sub(rayOrigin).normalize();
+    raycaster.set(rayOrigin, dir);
+    raycaster.far = dist;
+    const hits = raycaster.intersectObjects(wallMeshesForRaycast, false);
+    if(hits.length > 0) return false;
+    return true;
+  }
+
+  function worldToCell(pos){
+    const cx = Math.round(pos.x / CELL + (MAZE_N-1)/2);
+    const cz = Math.round(pos.z / CELL + (MAZE_N-1)/2);
+    return {x: Math.min(Math.max(cx,0),MAZE_N-1), z: Math.min(Math.max(cz,0),MAZE_N-1)};
+  }
+
+  function updateMonster(dt, camPos, camDir){
+    const wasMonsterVisible = monsterVisible;
+    monsterVisible = checkMonsterVisible(camPos, camDir);
+
+    if(monsterVisible){
+      // The monster completely stops when the player is looking directly at it.
+      if(!wasMonsterVisible){
+        playDeepBreath();
+      }
+    } else {
+      // When the player is NOT looking at it, it continuously hunts the player.
+      // Rebuild the maze route regularly so it follows a stationary player too.
+      monsterPathTimer -= dt;
+      const curCell = worldToCell(monsterPos);
+      const playerCell = worldToCell(camPos);
+
+      if(monsterPathTimer <= 0 || monsterPath.length === 0){
+        monsterPath = bfsPath(curCell.x, curCell.z, playerCell.x, playerCell.z);
+        monsterPathTimer = 0.15;
+      }
+
+      const dxToPlayer = camPos.x - monsterPos.x;
+      const dzToPlayer = camPos.z - monsterPos.z;
+      const currentDist = Math.sqrt(dxToPlayer*dxToPlayer + dzToPlayer*dzToPlayer);
+      const playerRunning = lastMovementWasRunning;
+      const monsterSpeed = currentDist < 6
+        ? MONSTER_CLOSE_SPEED
+        : (playerRunning ? MONSTER_RUN_SPEED : MONSTER_BASE_SPEED);
+      const maxStep = monsterSpeed * dt;
+
+      let targetX, targetZ;
+
+      // Once it reaches the player's cell, chase the player's actual position.
+      // This fixes the old behavior where the monster stopped at the cell center.
+      if(curCell.x === playerCell.x && curCell.z === playerCell.z){
+        targetX = camPos.x;
+        targetZ = camPos.z;
+        monsterPath = [];
+      } else if(monsterPath.length > 0){
+        const target = cellCenter(monsterPath[0].x, monsterPath[0].z);
+        targetX = target.x;
+        targetZ = target.z;
+      } else {
+        // Failsafe: if a path is temporarily unavailable, keep moving toward
+        // the player instead of becoming permanently stuck.
+        targetX = camPos.x;
+        targetZ = camPos.z;
+      }
+
+      const dirX = targetX - monsterPos.x;
+      const dirZ = targetZ - monsterPos.z;
+      const d = Math.sqrt(dirX*dirX + dirZ*dirZ);
+
+      if(d > 0.001){
+        // Clamp movement so the monster can never overshoot a waypoint.
+        const step = Math.min(maxStep, d);
+        monsterPos.x += (dirX / d) * step;
+        monsterPos.z += (dirZ / d) * step;
+        monsterGroup.rotation.y = Math.atan2(dirX, dirZ);
+
+        if(monsterPath.length > 0 && d <= maxStep + 0.001){
+          monsterPath.shift();
+        }
+      } else if(monsterPath.length > 0){
+        monsterPath.shift();
+      }
+    }
+
+    monsterGroup.position.set(monsterPos.x, 0, monsterPos.z);
+    monsterGroup.position.y = Math.sin(performance.now()*0.004)*0.02;
+
+    // dread meter based on distance
+    const dx = monsterPos.x-camPos.x, dz = monsterPos.z-camPos.z;
+    const dist = Math.sqrt(dx*dx+dz*dz);
+    const dreadFill = document.getElementById('dreadFill');
+    const closeness = Math.max(0, Math.min(1, 1 - dist/12));
+    dreadFill.style.width = (closeness*100).toFixed(0)+'%';
+    if(audioCtx && droneGain){
+      droneGain.gain.setTargetAtTime(0.02 + closeness*0.18, audioCtx.currentTime, 0.1);
+      droneOsc.frequency.setTargetAtTime(45 + closeness*40, audioCtx.currentTime, 0.2);
+    }
+    if(closeness > 0.08){
+      heartbeatTimer -= dt;
+      if(heartbeatTimer <= 0){
+        const rate = 1.9 - closeness*1.5;
+        heartbeatTimer = Math.max(0.35, rate);
+        playHeartbeat(0.08 + closeness*0.3);
+      }
+    } else {
+      heartbeatTimer = 0;
+    }
+
+    // Being caught is based on actual distance, not whether the player is looking.
+    if(dist < CATCH_DIST){
+      triggerGameOver();
+    }
+  }
+
+  // ---------- AUDIO ----------
+  function initAudio(){
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    droneOsc = audioCtx.createOscillator();
+    droneOsc.type = 'sine';
+    droneOsc.frequency.value = 45;
+    droneGain = audioCtx.createGain();
+    droneGain.gain.value = 0.02;
+    droneOsc.connect(droneGain);
+    droneGain.connect(audioCtx.destination);
+    droneOsc.start();
+
+    // subtle buzzing hum layer
+    const buzz = audioCtx.createOscillator();
+    buzz.type = 'sawtooth';
+    buzz.frequency.value = 120;
+    const buzzGain = audioCtx.createGain();
+    buzzGain.gain.value = 0.005;
+    buzz.connect(buzzGain);
+    buzzGain.connect(audioCtx.destination);
+    buzz.start();
+
+    footstepBuffer = createNoiseBuffer(0.12);
+  }
+
+  function createNoiseBuffer(duration){
+    const size = Math.floor(audioCtx.sampleRate * duration);
+    const buffer = audioCtx.createBuffer(1, size, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<size;i++) data[i] = Math.random()*2-1;
+    return buffer;
+  }
+
+  function playFootstep(){
+    if(!audioCtx || !footstepBuffer) return;
+    const t = audioCtx.currentTime;
+    const src = audioCtx.createBufferSource();
+    src.buffer = footstepBuffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 260 + Math.random()*180;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.22, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t+0.13);
+    src.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination);
+    src.start(t);
+  }
+
+  function playHeartbeat(volume){
+    if(!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(58, t);
+    osc.frequency.exponentialRampToValueAtTime(28, t+0.18);
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.03,volume), t+0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t+0.3);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(t); osc.stop(t+0.32);
+  }
+
+  function playHeavyRecoveryBreath(){
+    if(!audioCtx) return;
+    const t=audioCtx.currentTime;
+
+    // One realistic breath: inhale, brief hold, then audible exhale.
+    // It is deliberately NOT continuous while running.
+    const inhale=createNoiseBuffer(0.42);
+    const exhale=createNoiseBuffer(0.62);
+
+    const srcIn=audioCtx.createBufferSource(); srcIn.buffer=inhale;
+    const fIn=audioCtx.createBiquadFilter(); fIn.type='bandpass'; fIn.frequency.value=900; fIn.Q.value=0.7;
+    const gIn=audioCtx.createGain();
+    gIn.gain.setValueAtTime(0.0001,t);
+    gIn.gain.exponentialRampToValueAtTime(0.045,t+0.25);
+    gIn.gain.exponentialRampToValueAtTime(0.0001,t+0.42);
+    srcIn.connect(fIn); fIn.connect(gIn); gIn.connect(audioCtx.destination); srcIn.start(t);
+
+    const srcOut=audioCtx.createBufferSource(); srcOut.buffer=exhale;
+    const fOut=audioCtx.createBiquadFilter(); fOut.type='bandpass'; fOut.frequency.value=620; fOut.Q.value=0.6;
+    const gOut=audioCtx.createGain();
+    gOut.gain.setValueAtTime(0.0001,t+0.50);
+    gOut.gain.exponentialRampToValueAtTime(0.105,t+0.68);
+    gOut.gain.exponentialRampToValueAtTime(0.001,t+1.10);
+    srcOut.connect(fOut); fOut.connect(gOut); gOut.connect(audioCtx.destination); srcOut.start(t+0.50);
+  }
+
+  function playDeepBreath(){
+    if(!audioCtx) return;
+    const t=audioCtx.currentTime;
+
+    // A single deep inhale followed by a long release when the ghost is seen.
+    const inhale=createNoiseBuffer(0.58);
+    const exhale=createNoiseBuffer(0.90);
+
+    const srcIn=audioCtx.createBufferSource(); srcIn.buffer=inhale;
+    const fIn=audioCtx.createBiquadFilter(); fIn.type='bandpass'; fIn.frequency.value=520; fIn.Q.value=0.55;
+    const gIn=audioCtx.createGain();
+    gIn.gain.setValueAtTime(0.0001,t);
+    gIn.gain.exponentialRampToValueAtTime(0.10,t+0.38);
+    gIn.gain.exponentialRampToValueAtTime(0.0001,t+0.58);
+    srcIn.connect(fIn); fIn.connect(gIn); gIn.connect(audioCtx.destination); srcIn.start(t);
+
+    const srcOut=audioCtx.createBufferSource(); srcOut.buffer=exhale;
+    const fOut=audioCtx.createBiquadFilter(); fOut.type='bandpass'; fOut.frequency.value=380; fOut.Q.value=0.5;
+    const gOut=audioCtx.createGain();
+    gOut.gain.setValueAtTime(0.0001,t+0.68);
+    gOut.gain.exponentialRampToValueAtTime(0.13,t+0.90);
+    gOut.gain.exponentialRampToValueAtTime(0.001,t+1.52);
+    srcOut.connect(fOut); fOut.connect(gOut); gOut.connect(audioCtx.destination); srcOut.start(t+0.68);
+  }
+
+function playPathJumpscare(){
+    if(!audioCtx) return;
+    const t=audioCtx.currentTime;
+    const src=audioCtx.createBufferSource();
+    src.buffer=createNoiseBuffer(0.45);
+    const bp=audioCtx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1250; bp.Q.value=0.7;
+    const g=audioCtx.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.72,t+0.015); g.gain.exponentialRampToValueAtTime(0.0001,t+0.45);
+    src.connect(bp); bp.connect(g); g.connect(audioCtx.destination); src.start(t);
+    const osc=audioCtx.createOscillator(); osc.type='sawtooth'; osc.frequency.setValueAtTime(180,t); osc.frequency.exponentialRampToValueAtTime(1450,t+0.12); osc.frequency.exponentialRampToValueAtTime(95,t+0.5);
+    const og=audioCtx.createGain(); og.gain.setValueAtTime(0.0001,t); og.gain.exponentialRampToValueAtTime(0.32,t+0.025); og.gain.exponentialRampToValueAtTime(0.0001,t+0.52);
+    osc.connect(og); og.connect(audioCtx.destination); osc.start(t); osc.stop(t+0.55);
+  }
+
+  function playJumpscare(){
+    if(!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const src = audioCtx.createBufferSource();
+    src.buffer = createNoiseBuffer(0.6);
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.5, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t+0.6);
+    src.connect(gain); gain.connect(audioCtx.destination);
+    src.start(t);
+
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(900, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t+0.8);
+    const oGain = audioCtx.createGain();
+    oGain.gain.setValueAtTime(0.28, t);
+    oGain.gain.exponentialRampToValueAtTime(0.001, t+0.8);
+    osc.connect(oGain); oGain.connect(audioCtx.destination);
+    osc.start(t); osc.stop(t+0.85);
+  }
+
+  // ---------- INPUT ----------
+  function onMouseMove(e){
+    if(!pointerLocked) return;
+    const sensitivity = 0.0032;
+    yaw -= e.movementX * sensitivity;
+    pitch -= e.movementY * sensitivity;
+    pitch = Math.max(-Math.PI/2+0.05, Math.min(Math.PI/2-0.05, pitch));
+  }
+
+  function setupTouchControls(){
+    const canvasEl = renderer.domElement;
+    const joyBase = document.getElementById('joystickBase');
+    const joyKnob = document.getElementById('joystickKnob');
+    const RADIUS = 55;
+
+    function findTouch(list, id){
+      for(let i=0;i<list.length;i++) if(list[i].identifier === id) return list[i];
+      return null;
+    }
+
+    canvasEl.addEventListener('touchstart', (e)=>{
+      if(!gameActive) return;
+      for(const t of e.changedTouches){
+        const halfW = window.innerWidth/2;
+        if(t.clientX < halfW && !joystick.active){
+          joystick.active = true;
+          joystick.id = t.identifier;
+          joystick.baseX = t.clientX;
+          joystick.baseY = t.clientY;
+          joystick.nx = 0; joystick.ny = 0;
+          joyBase.style.display = 'block';
+          joyBase.style.left = (t.clientX - 55) + 'px';
+          joyBase.style.top = (t.clientY - 55) + 'px';
+          joyKnob.style.transform = 'translate(-50%,-50%)';
+        } else if(!lookTouch.active){
+          lookTouch.active = true;
+          lookTouch.id = t.identifier;
+          lookTouch.lastX = t.clientX;
+          lookTouch.lastY = t.clientY;
+        }
+      }
+      e.preventDefault();
+    }, {passive:false});
+
+    canvasEl.addEventListener('touchmove', (e)=>{
+      if(!gameActive) return;
+      if(joystick.active){
+        const t = findTouch(e.changedTouches, joystick.id);
+        if(t){
+          let dx = t.clientX - joystick.baseX;
+          let dy = t.clientY - joystick.baseY;
+          const d = Math.sqrt(dx*dx+dy*dy);
+          if(d > RADIUS){ dx = dx/d*RADIUS; dy = dy/d*RADIUS; }
+          joystick.nx = dx/RADIUS;
+          joystick.ny = dy/RADIUS;
+          joyKnob.style.transform = `translate(${dx-24}px, ${dy-24}px)`;
+        }
+      }
+      if(lookTouch.active){
+        const t = findTouch(e.changedTouches, lookTouch.id);
+        if(t){
+          const sensitivity = 0.0042;
+          const mdx = t.clientX - lookTouch.lastX;
+          const mdy = t.clientY - lookTouch.lastY;
+          yaw -= mdx * sensitivity;
+          pitch -= mdy * sensitivity;
+          pitch = Math.max(-Math.PI/2+0.05, Math.min(Math.PI/2-0.05, pitch));
+          lookTouch.lastX = t.clientX;
+          lookTouch.lastY = t.clientY;
+        }
+      }
+      e.preventDefault();
+    }, {passive:false});
+
+    function endTouch(e){
+      for(const t of e.changedTouches){
+        if(joystick.active && t.identifier === joystick.id){
+          joystick.active = false;
+          joystick.nx = 0; joystick.ny = 0;
+          joyBase.style.display = 'none';
+        }
+        if(lookTouch.active && t.identifier === lookTouch.id){
+          lookTouch.active = false;
+        }
+      }
+    }
+    canvasEl.addEventListener('touchend', endTouch);
+    canvasEl.addEventListener('touchcancel', endTouch);
+
+    const runBtn = document.getElementById('runBtn');
+    const lightBtn = document.getElementById('lightBtn');
+    runBtn.addEventListener('touchstart', (e)=>{ mobileRun = true; runBtn.classList.add('active'); e.preventDefault(); }, {passive:false});
+    runBtn.addEventListener('touchend', (e)=>{ mobileRun = false; runBtn.classList.remove('active'); e.preventDefault(); }, {passive:false});
+    lightBtn.addEventListener('touchstart', (e)=>{
+      if(!gameActive) return;
+      flashlightOn = !flashlightOn;
+      flashlight.visible = flashlightOn;
+      lightBtn.classList.toggle('active', flashlightOn);
+      e.preventDefault();
+    }, {passive:false});
+  }
+
+  function setupPointerLock(){
+    const canvasEl = renderer.domElement;
+    if(isMobile) return;
+
+    let lockRequestPending = false;
+    let lastMouseX = null;
+    let lastMouseY = null;
+
+    function requestLock(){
+      if(!gameActive || document.pointerLockElement===canvasEl || lockRequestPending) return;
+      lockRequestPending=true;
+      try{
+        const result=canvasEl.requestPointerLock();
+        if(result && typeof result.catch==='function') result.catch(()=>{ lockRequestPending=false; });
+      }catch(e){ lockRequestPending=false; }
+    }
+
+    canvasEl.addEventListener('click', requestLock);
+    document.addEventListener('pointerlockchange', ()=>{
+      pointerLocked = (document.pointerLockElement === canvasEl);
+      lockRequestPending=false;
+      lastMouseX=null; lastMouseY=null;
+    });
+    document.addEventListener('pointerlockerror', ()=>{
+      pointerLocked=false;
+      lockRequestPending=false;
+    });
+    document.addEventListener('mousemove', (e)=>{
+      if(!gameActive) return;
+      if(pointerLocked){
+        onMouseMove(e);
+      } else {
+        // Fallback: if Chrome temporarily loses pointer-lock state, a small mouse
+        // movement over the canvas can still restore looking instead of leaving the
+        // camera apparently frozen.
+        if(e.target===canvasEl){
+          if(lastMouseX!==null){
+            const dx=e.clientX-lastMouseX, dy=e.clientY-lastMouseY;
+            yaw -= dx*0.0032;
+            pitch -= dy*0.0032;
+            pitch=Math.max(-Math.PI/2+0.05,Math.min(Math.PI/2-0.05,pitch));
+          }
+          lastMouseX=e.clientX; lastMouseY=e.clientY;
+        }
+      }
+    });
+  }
+
+  window.addEventListener('keydown', (e)=>{
+    keys[e.code] = true;
+    if(e.code === 'KeyF' && gameActive){
+      flashlightOn = !flashlightOn;
+      flashlight.visible = flashlightOn;
+    }
+  });
+  window.addEventListener('keyup', (e)=>{ keys[e.code] = false; });
+
+  // ---------- COLLISION ----------
+  function resolveCollision(pos){
+    for(const box of wallBoxes){
+      // expand box by player radius
+      const minX = box.minX - PLAYER_R, maxX = box.maxX + PLAYER_R;
+      const minZ = box.minZ - PLAYER_R, maxZ = box.maxZ + PLAYER_R;
+      if(pos.x > minX && pos.x < maxX && pos.z > minZ && pos.z < maxZ){
+        // push out along smallest overlap axis
+        const overlapX = Math.min(pos.x - minX, maxX - pos.x);
+        const overlapZ = Math.min(pos.z - minZ, maxZ - pos.z);
+        if(overlapX < overlapZ){
+          pos.x += (pos.x - (minX+maxX)/2) > 0 ? overlapX : -overlapX;
+        } else {
+          pos.z += (pos.z - (minZ+maxZ)/2) > 0 ? overlapZ : -overlapZ;
+        }
+      }
+    }
+  }
+
+  // ---------- GAME FLOW ----------
+  function triggerGameOver(){
+    if(!gameActive) return;
+    gameActive = false;
+    document.exitPointerLock();
+    playJumpscare();
+    const flash = document.getElementById('flash');
+    flash.style.transition = 'opacity 0.05s';
+    flash.style.opacity = '1';
+    setTimeout(()=>{
+      flash.style.transition = 'opacity 1.2s';
+      flash.style.opacity = '0';
+    }, 120);
+    setTimeout(()=>{
+      document.getElementById('gameOver').style.display = 'flex';
+      document.getElementById('hud').classList.add('hidden');
+      document.getElementById('flashHint').classList.add('hidden');
+    }, 400);
+  }
+
+  function triggerWin(){
+    if(!gameActive) return;
+    gameActive = false;
+    document.exitPointerLock();
+    document.getElementById('winScreen').style.display = 'flex';
+    document.getElementById('hud').classList.add('hidden');
+    document.getElementById('flashHint').classList.add('hidden');
+  }
+
+  function updatePathJumpscare(dt, camPos, camDir){
+    if(!scareEntity || scareTriggered || !gameActive) return;
+    const dx=scareEntity.baseX-camPos.x, dz=scareEntity.baseZ-camPos.z;
+    const dist=Math.sqrt(dx*dx+dz*dz);
+    if(dist>22) return;
+    const flatDir=new THREE.Vector3(camDir.x,0,camDir.z).normalize();
+    const toScare=new THREE.Vector3(dx,0,dz).normalize();
+    const angle=flatDir.angleTo(toScare)*(180/Math.PI);
+    if(angle>17) return;
+    const origin=new THREE.Vector3(camPos.x,1.25,camPos.z);
+    const target=new THREE.Vector3(scareEntity.baseX,1.35,scareEntity.baseZ);
+    const dir=target.clone().sub(origin).normalize();
+    raycaster.set(origin,dir); raycaster.far=dist;
+    if(raycaster.intersectObjects(wallMeshesForRaycast,false).length) return;
+
+    scareTriggered=true; scareActive=true; scareTimer=0;
+    playPathJumpscare();
+  }
+
+  function animatePathJumpscare(dt){
+    if(!scareEntity || !scareActive) return;
+    scareTimer += dt;
+    const riseDuration=0.22;
+    const holdDuration=1.15;
+    if(scareTimer <= riseDuration){
+      const u=scareTimer/riseDuration;
+      const eased=1-Math.pow(1-u,4);
+      scareEntity.group.position.y = scareEntity.startY + eased*3.8;
+      scareEntity.group.rotation.z = Math.sin(u*Math.PI)*0.08;
+    } else if(scareTimer <= riseDuration+holdDuration){
+      scareEntity.group.position.y = 1.8;
+      scareEntity.group.rotation.z = Math.sin(scareTimer*25)*0.025;
+    } else {
+      scareEntity.group.visible=false;
+      scareActive=false;
+    }
+  }
+
+  function resetGame(){
+    // clear scene
+    while(scene.children.length){ scene.remove(scene.children[0]); }
+    wallBoxes = [];
+    wallMeshesForRaycast = [];
+    flicker = {};
+
+    scene.add(new THREE.AmbientLight(0x403820, 0.55));
+
+    maze = generateMaze(MAZE_N);
+    buildMazeGeometry();
+    addPathHints();
+    buildScareEntity();
+    buildMonster();
+    resetMonster();
+
+    const startPos = cellCenter(0,0);
+    playerPos.set(startPos.x, 0, startPos.z);
+    yaw = 0; pitch = 0;
+    stamina = 1.0;
+    breathTimer = 0;
+    postRunBreathTimer = 0;
+    lastMovementWasRunning = false;
+
+    camera.add(flashlight);
+    camera.add(playerLight);
+    scene.add(camera);
+    flashlight.visible = flashlightOn = false;
+
+    document.getElementById('gameOver').style.display = 'none';
+    document.getElementById('winScreen').style.display = 'none';
+    document.getElementById('hud').classList.remove('hidden');
+    document.getElementById('flashHint').classList.remove('hidden');
+
+    gameActive = true;
+    clock.getDelta();
+  }
+
+  // ---------- MAIN LOOP ----------
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt = Math.min(clock.getDelta(), 0.05);
+
+    // flicker lights
+    const t = performance.now()*0.001;
+    for(const key in flicker){
+      const f = flicker[key];
+      const n = Math.sin(t*8 + f.phase) * Math.sin(t*1.3+f.phase*2);
+      const flickerAmt = (Math.random() < 0.01) ? 0.1 : 1.0;
+      f.light.intensity = f.base * (0.85 + 0.15*n) * flickerAmt;
+    }
+
+    if(gameActive){
+      // movement
+      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+      const right = new THREE.Vector3(Math.sin(yaw+Math.PI/2), 0, Math.cos(yaw+Math.PI/2));
+      let moveX=0, moveZ=0;
+      if(keys['KeyW']){ moveX += forward.x; moveZ += forward.z; }
+      if(keys['KeyS']){ moveX -= forward.x; moveZ -= forward.z; }
+      if(keys['KeyA']){ moveX -= right.x; moveZ -= right.z; }
+      if(keys['KeyD']){ moveX += right.x; moveZ += right.z; }
+      if(joystick.active && (Math.abs(joystick.nx) > 0.05 || Math.abs(joystick.ny) > 0.05)){
+        moveX += forward.x * (-joystick.ny) + right.x * joystick.nx;
+        moveZ += forward.z * (-joystick.ny) + right.z * joystick.nx;
+      }
+      const moving = (moveX!==0 || moveZ!==0);
+      const len = Math.sqrt(moveX*moveX+moveZ*moveZ) || 1;
+      moveX/=len; moveZ/=len;
+
+      const wantsRun = keys['ShiftLeft'] || keys['ShiftRight'] || mobileRun;
+      const running = wantsRun && moving && stamina > 0.02;
+      const speed = running ? RUN_SPEED : WALK_SPEED;
+
+      if(running){ stamina = Math.max(0, stamina - dt*0.28); }
+      else { stamina = Math.min(1, stamina + dt*0.18); }
+      document.getElementById('staminaFill').style.width = (stamina*100).toFixed(0)+'%';
+
+      const newPos = playerPos.clone();
+      newPos.x += moveX * speed * dt;
+      newPos.z += moveZ * speed * dt;
+      resolveCollision(newPos);
+      playerPos.copy(newPos);
+
+      // Breathing is intentionally silent during movement. When sprinting ends,
+      // give the player a short heavy-breath recovery period instead.
+      if(lastMovementWasRunning && !running && moving === false){
+        postRunBreathTimer = 4.0;
+        breathTimer = 0;
+      }
+      lastMovementWasRunning = running;
+
+      if(postRunBreathTimer > 0){
+        postRunBreathTimer -= dt;
+        breathTimer -= dt;
+        if(breathTimer <= 0){
+          playHeavyRecoveryBreath();
+          const recovery = Math.max(0.72, 1.25 - (4.0-postRunBreathTimer)*0.06);
+          breathTimer = recovery;
+        }
+      }
+
+      if(moving){
+        headbobT += dt * (running?9:5.5);
+        const step = Math.floor(headbobT/Math.PI);
+        if(step !== lastFootstepStep){
+          lastFootstepStep = step;
+          playFootstep();
+        }
+      }
+      const bob = moving ? Math.sin(headbobT)*0.045 : 0;
+
+      camera.position.set(playerPos.x, EYE_H + bob, playerPos.z);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = yaw;
+      camera.rotation.x = pitch;
+
+      const camDir = new THREE.Vector3();
+      camera.getWorldDirection(camDir);
+
+      updateMonster(dt, playerPos, camDir);
+      updatePathJumpscare(dt, playerPos, camDir);
+
+      // win check
+      const ep = window.__exitPos;
+      if(ep){
+        const dx = playerPos.x-ep.x, dz = playerPos.z-ep.z;
+        if(Math.sqrt(dx*dx+dz*dz) < 1.3) triggerWin();
+      }
+    }
+
+    animatePathJumpscare(dt);
+    renderer.render(scene, camera);
+  }
+
+  // ---------- INIT ----------
+  function init(){
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x0a0905, 0.075);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.05, 200);
+    renderer = new THREE.WebGLRenderer({antialias:false});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.insertBefore(renderer.domElement, document.getElementById('crosshair'));
+    clock = new THREE.Clock();
+
+    flashlight = new THREE.SpotLight(0xfff2cc, 2.2, 12, Math.PI/7, 0.4, 1.5);
+    flashlight.position.set(0,0,0);
+    flashlight.target.position.set(0,0,-1);
+    camera.add(flashlight.target);
+
+    playerLight = new THREE.PointLight(0xfff2cc, 0.15, 2.5);
+
+    window.addEventListener('resize', ()=>{
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    setupPointerLock();
+    setupTouchControls();
+    applyMobileUI();
+    animate();
+  }
+
+  function applyMobileUI(){
+    if(!isMobile) return;
+    document.getElementById('mobileButtons').classList.remove('hidden');
+    document.getElementById('crosshair').classList.add('hidden');
+    document.getElementById('flashHint').textContent = 'TAP LIGHT TO TOGGLE FLASHLIGHT · HOLD RUN TO SPRINT';
+    const startP = document.querySelector('#startScreen p');
+    if(startP){
+      startP.innerHTML = `You are lost in the backrooms. Somewhere in these halls, something is
+        looking for you. It cannot move while you see it &mdash; but the moment
+        it leaves your sight, it will come closer.<br><br>
+        Find the exit sign glowing at the far end of the halls.<br><br>
+        <span class="key">LEFT SIDE</span> drag to move &nbsp;
+        <span class="key">RIGHT SIDE</span> drag to look<br><br>
+        Tap <span class="key">RUN</span> to sprint &middot; tap <span class="key">LIGHT</span> for flashlight`;
+    }
+  }
+
+  document.getElementById('startBtn').addEventListener('click', ()=>{
+    document.getElementById('startScreen').style.display = 'none';
+    if(!audioCtx) initAudio();
+    resetGame();
+    if(!isMobile) renderer.domElement.requestPointerLock();
+  });
+  document.getElementById('retryBtn').addEventListener('click', ()=>{
+    resetGame();
+    if(!isMobile) renderer.domElement.requestPointerLock();
+  });
+  document.getElementById('retryBtn2').addEventListener('click', ()=>{
+    resetGame();
+    if(!isMobile) renderer.domElement.requestPointerLock();
+  });
+
+  init();
+})();
+</script>
+</body>
+</html>
