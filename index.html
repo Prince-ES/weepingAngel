@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
 <title>NO EXIT — a backrooms game</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
@@ -1328,6 +1333,19 @@ function playPathJumpscare(){
     renderer.render(scene, camera);
   }
 
+  // ---------- MOBILE FULLSCREEN ----------
+  async function enterMobileFullscreen(){
+    if(!isMobile) return;
+    try{
+      const el = document.documentElement;
+      if(document.fullscreenElement) return;
+      if(el.requestFullscreen) await el.requestFullscreen({navigationUI:'hide'});
+      else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }catch(err){
+      // Some mobile browsers only allow fullscreen from a direct user gesture.
+    }
+  }
+
   // ---------- INIT ----------
   function init(){
     scene = new THREE.Scene();
@@ -1379,14 +1397,17 @@ function playPathJumpscare(){
     document.getElementById('startScreen').style.display = 'none';
     if(!audioCtx) initAudio();
     resetGame();
+    enterMobileFullscreen();
     if(!isMobile) renderer.domElement.requestPointerLock();
   });
   document.getElementById('retryBtn').addEventListener('click', ()=>{
     resetGame();
+    enterMobileFullscreen();
     if(!isMobile) renderer.domElement.requestPointerLock();
   });
   document.getElementById('retryBtn2').addEventListener('click', ()=>{
     resetGame();
+    enterMobileFullscreen();
     if(!isMobile) renderer.domElement.requestPointerLock();
   });
 
