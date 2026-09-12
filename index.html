@@ -1287,8 +1287,14 @@ function playPathJumpscare(){
       const len = Math.sqrt(moveX*moveX+moveZ*moveZ) || 1;
       moveX/=len; moveZ/=len;
 
+      // Only forward or pure-sideways movement can be sprinted; any backward
+      // component (S, or S+A/S+D diagonals) is capped to walk speed so the
+      // player can't stare down the entity and still outrun it backward.
+      const forwardDot = moveX*forward.x + moveZ*forward.z;
+      const allowRun = forwardDot > -0.05;
+
       const wantsRun = keys['ShiftLeft'] || keys['ShiftRight'] || mobileRun;
-      const running = wantsRun && moving && stamina > 0.02;
+      const running = wantsRun && moving && stamina > 0.02 && allowRun;
       const speed = running ? RUN_SPEED : WALK_SPEED;
 
       if(running){ stamina = Math.max(0, stamina - dt*0.28); }
