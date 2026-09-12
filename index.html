@@ -195,13 +195,14 @@
   let lastFootstepStep = 0;
   let heartbeatTimer = 0;
   let breathTimer = 0;
-  let postRunBreathTimer = 0;
-  let lastMovementWasRunning = false;
+  let breathIntensity = 0;
+  let currentDread = 0;
   let hintMeshes = [];
   let scareEntity = null;
   let scareTriggered = false;
   let scareActive = false;
   let scareTimer = 0;
+  let lastMovementWasRunning = false;
   let headbobT = 0;
   let flicker = {};
   let raycaster = new THREE.Raycaster();
@@ -783,6 +784,7 @@ function buildMonster(){
     const dist = Math.sqrt(dx*dx+dz*dz);
     const dreadFill = document.getElementById('dreadFill');
     const closeness = Math.max(0, Math.min(1, 1 - dist/12));
+    currentDread = closeness;
     dreadFill.style.width = (closeness*100).toFixed(0)+'%';
     if(audioCtx && droneGain){
       droneGain.gain.setTargetAtTime(0.02 + closeness*0.18, audioCtx.currentTime, 0.1);
@@ -868,30 +870,42 @@ function buildMonster(){
     osc.start(t); osc.stop(t+0.32);
   }
 
-  function playHeavyRecoveryBreath(){
+  // A single natural inhale-exhale breath cycle. `intensity` (0..1) scales
+  // loudness, pitch, and how quick/shallow (fear/exertion) vs slow/deep (calm)
+  // the breath sounds.
+  function playBreath(intensity){
     if(!audioCtx) return;
-    const t=audioCtx.currentTime;
+    const t = audioCtx.currentTime;
+    const inhaleDur = 0.50 - intensity*0.22;   // calm: ~0.5s, intense: ~0.28s (quick gasp)
+    const exhaleDur = 0.78 - intensity*0.28;   // calm: ~0.78s, intense: ~0.5s
+    const vol = 0.035 + intensity*0.17;
 
-    // One realistic breath: inhale, brief hold, then audible exhale.
-    // It is deliberately NOT continuous while running.
-    const inhale=createNoiseBuffer(0.42);
-    const exhale=createNoiseBuffer(0.62);
+    const inhaleBuf = createNoiseBuffer(inhaleDur);
+    const srcIn = audioCtx.createBufferSource(); srcIn.buffer = inhaleBuf;
+    const fIn = audioCtx.createBiquadFilter();
+    fIn.type = 'bandpass';
+    fIn.frequency.value = 460 + intensity*420;
+    fIn.Q.value = 0.55;
+    const gIn = audioCtx.createGain();
+    gIn.gain.setValueAtTime(0.0001, t);
+    gIn.gain.exponentialRampToValueAtTime(vol, t + inhaleDur*0.55);
+    gIn.gain.exponentialRampToValueAtTime(0.0001, t + inhaleDur);
+    srcIn.connect(fIn); fIn.connect(gIn); gIn.connect(audioCtx.destination);
+    srcIn.start(t);
 
-    const srcIn=audioCtx.createBufferSource(); srcIn.buffer=inhale;
-    const fIn=audioCtx.createBiquadFilter(); fIn.type='bandpass'; fIn.frequency.value=900; fIn.Q.value=0.7;
-    const gIn=audioCtx.createGain();
-    gIn.gain.setValueAtTime(0.0001,t);
-    gIn.gain.exponentialRampToValueAtTime(0.045,t+0.25);
-    gIn.gain.exponentialRampToValueAtTime(0.0001,t+0.42);
-    srcIn.connect(fIn); fIn.connect(gIn); gIn.connect(audioCtx.destination); srcIn.start(t);
-
-    const srcOut=audioCtx.createBufferSource(); srcOut.buffer=exhale;
-    const fOut=audioCtx.createBiquadFilter(); fOut.type='bandpass'; fOut.frequency.value=620; fOut.Q.value=0.6;
-    const gOut=audioCtx.createGain();
-    gOut.gain.setValueAtTime(0.0001,t+0.50);
-    gOut.gain.exponentialRampToValueAtTime(0.105,t+0.68);
-    gOut.gain.exponentialRampToValueAtTime(0.001,t+1.10);
-    srcOut.connect(fOut); fOut.connect(gOut); gOut.connect(audioCtx.destination); srcOut.start(t+0.50);
+    const exhaleStart = t + inhaleDur*1.08;
+    const exhaleBuf = createNoiseBuffer(exhaleDur);
+    const srcOut = audioCtx.createBufferSource(); srcOut.buffer = exhaleBuf;
+    const fOut = audioCtx.createBiquadFilter();
+    fOut.type = 'bandpass';
+    fOut.frequency.value = 320 + intensity*260;
+    fOut.Q.value = 0.5;
+    const gOut = audioCtx.createGain();
+    gOut.gain.setValueAtTime(0.0001, exhaleStart);
+    gOut.gain.exponentialRampToValueAtTime(vol*1.15, exhaleStart + exhaleDur*0.32);
+    gOut.gain.exponentialRampToValueAtTime(0.0001, exhaleStart + exhaleDur);
+    srcOut.connect(fOut); fOut.connect(gOut); gOut.connect(audioCtx.destination);
+    srcOut.start(exhaleStart);
   }
 
   function playDeepBreath(){
@@ -1220,7 +1234,8 @@ function playPathJumpscare(){
     yaw = 0; pitch = 0;
     stamina = 1.0;
     breathTimer = 0;
-    postRunBreathTimer = 0;
+    breathIntensity = 0;
+    currentDread = 0;
     lastMovementWasRunning = false;
 
     camera.add(flashlight);
@@ -1252,15 +1267,19 @@ function playPathJumpscare(){
     }
 
     if(gameActive){
-      // movement
-      const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-      const right = new THREE.Vector3(Math.sin(yaw+Math.PI/2), 0, Math.cos(yaw+Math.PI/2));
+      // movement — forward is the direction the camera is actually looking
+      // (matches camera.getWorldDirection at pitch 0), so W/joystick-forward
+      // walks the player into the screen instead of away from it.
+      const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
       let moveX=0, moveZ=0;
       if(keys['KeyW']){ moveX += forward.x; moveZ += forward.z; }
       if(keys['KeyS']){ moveX -= forward.x; moveZ -= forward.z; }
       if(keys['KeyA']){ moveX -= right.x; moveZ -= right.z; }
       if(keys['KeyD']){ moveX += right.x; moveZ += right.z; }
       if(joystick.active && (Math.abs(joystick.nx) > 0.05 || Math.abs(joystick.ny) > 0.05)){
+        // joystick.ny is negative when the stick is pushed up (toward "forward"),
+        // so negate it to add a positive forward contribution.
         moveX += forward.x * (-joystick.ny) + right.x * joystick.nx;
         moveZ += forward.z * (-joystick.ny) + right.z * joystick.nx;
       }
@@ -1282,22 +1301,22 @@ function playPathJumpscare(){
       resolveCollision(newPos);
       playerPos.copy(newPos);
 
-      // Breathing is intentionally silent during movement. When sprinting ends,
-      // give the player a short heavy-breath recovery period instead.
-      if(lastMovementWasRunning && !running && moving === false){
-        postRunBreathTimer = 4.0;
-        breathTimer = 0;
-      }
       lastMovementWasRunning = running;
 
-      if(postRunBreathTimer > 0){
-        postRunBreathTimer -= dt;
-        breathTimer -= dt;
-        if(breathTimer <= 0){
-          playHeavyRecoveryBreath();
-          const recovery = Math.max(0.72, 1.25 - (4.0-postRunBreathTimer)*0.06);
-          breathTimer = recovery;
-        }
+      // Continuous breathing driven by exertion (sprinting) and fear (monster
+      // closeness), instead of a single one-shot breath after stopping.
+      if(running){
+        breathIntensity = Math.min(1, breathIntensity + dt*0.5);
+      } else {
+        breathIntensity = Math.max(0, breathIntensity - dt*0.09);
+      }
+      breathIntensity = Math.max(breathIntensity, currentDread*0.55);
+
+      breathTimer -= dt;
+      if(breathIntensity > 0.02 && breathTimer <= 0){
+        playBreath(breathIntensity);
+        const interval = 3.1 - breathIntensity*2.35; // ~3.1s calm down to ~0.75s panicked
+        breathTimer = interval + (Math.random()*0.3 - 0.15);
       }
 
       if(moving){
